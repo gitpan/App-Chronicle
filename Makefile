@@ -60,11 +60,11 @@ DIRFILESEP = /
 DFSEP = $(DIRFILESEP)
 NAME = App::Chronicle
 NAME_SYM = App_Chronicle
-VERSION = 5.0
+VERSION = 5.0.1
 VERSION_MACRO = VERSION
-VERSION_SYM = 5_0
+VERSION_SYM = 5_0_1
 DEFINE_VERSION = -D$(VERSION_MACRO)=\"$(VERSION)\"
-XS_VERSION = 5.0
+XS_VERSION = 5.0.1
 XS_VERSION_MACRO = XS_VERSION
 XS_DEFINE_VERSION = -D$(XS_VERSION_MACRO)=\"$(XS_VERSION)\"
 INST_ARCHLIB = blib/arch
@@ -321,7 +321,7 @@ RCS_LABEL = rcs -Nv$(VERSION_SYM): -q
 DIST_CP = best
 DIST_DEFAULT = tardist
 DISTNAME = App-Chronicle
-DISTVNAME = App-Chronicle-5.0
+DISTVNAME = App-Chronicle-5.0.1
 
 
 # --- MakeMaker macro section:
@@ -592,7 +592,7 @@ metafile : create_distdir
 	$(NOECHO) $(ECHO) Generating META.yml
 	$(NOECHO) $(ECHO) '--- #YAML:1.0' > META_new.yml
 	$(NOECHO) $(ECHO) 'name:               App-Chronicle' >> META_new.yml
-	$(NOECHO) $(ECHO) 'version:            5.0' >> META_new.yml
+	$(NOECHO) $(ECHO) 'version:            5.0.1' >> META_new.yml
 	$(NOECHO) $(ECHO) 'abstract:           A static blog-compiler with minimal dependencies.' >> META_new.yml
 	$(NOECHO) $(ECHO) 'author:' >> META_new.yml
 	$(NOECHO) $(ECHO) '    - Steve Kemp <steve@steve.org.uk>' >> META_new.yml
@@ -899,7 +899,7 @@ testdb_static :: testdb_dynamic
 # --- MakeMaker ppd section:
 # Creates a PPD (Perl Package Description) for a binary distribution.
 ppd :
-	$(NOECHO) $(ECHO) '<SOFTPKG NAME="$(DISTNAME)" VERSION="5.0">' > $(DISTNAME).ppd
+	$(NOECHO) $(ECHO) '<SOFTPKG NAME="$(DISTNAME)" VERSION="5.0.1">' > $(DISTNAME).ppd
 	$(NOECHO) $(ECHO) '    <ABSTRACT>A static blog-compiler with minimal dependencies.</ABSTRACT>' >> $(DISTNAME).ppd
 	$(NOECHO) $(ECHO) '    <AUTHOR>Steve Kemp &lt;steve@steve.org.uk&gt;</AUTHOR>' >> $(DISTNAME).ppd
 	$(NOECHO) $(ECHO) '    <IMPLEMENTATION>' >> $(DISTNAME).ppd
