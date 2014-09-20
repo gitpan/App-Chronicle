@@ -1,0 +1,42 @@
+--- #YAML:1.0
+name:               App-Chronicle
+version:            5.0
+abstract:           A static blog-compiler with minimal dependencies.
+author:
+    - Steve Kemp <steve@steve.org.uk>
+license:            perl
+distribution_type:  module
+configure_requires:
+    ExtUtils::MakeMaker:  0
+build_requires:
+    File::ShareDir::Install:  0
+    Test::More:           0
+    Test::NoTabs:         0
+    Test::Pod:            0
+    Test::Strict:         0
+requires:
+    Date::Format:         0
+    Date::Parse:          0
+    DBI:                  0
+    Digest::MD5:          0
+    File::Basename:       0
+    File::Path:           0
+    Getopt::Long:         0
+    HTML::Template:       0
+    Module::Pluggable::Ordered:  0
+    perl:                 5.008
+    Pod::Usage:           0
+resources:
+    bugtracker:  https://github.com/skx/chronicle2/issues
+    GitMirror:   http://git.steve.org.uk/cpan/chronicle2
+    homepage:    https://github.com/skx/chronicle2/
+    license:     http://dev.perl.org/licenses/
+    repository:  https://github.com/skx/chronicle2.git
+no_index:
+    directory:
+        - t
+        - inc
+generated_by:       ExtUtils::MakeMaker version 6.57_05
+meta-spec:
+    url:      http://module-build.sourceforge.net/META-spec-v1.4.html
+    version:  1.4

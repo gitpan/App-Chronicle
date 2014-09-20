@@ -1,0 +1,1254 @@
+#!/usr/bin/perl
+
+=head1 NAME
+
+chronicle - A static blog-compiler.
+
+=cut
+
+=head1 SYNOPSIS
+
+  chronicle [options]
+
+
+  Path Options:
+
+   --comments       Specify the path to the optional comments directory.
+   --config         Specify a configuration file to read.
+   --input          Specify the input directory to use.
+   --output         Specify the directory to write output to.
+   --pattern        Specify the pattern of files to work with.
+   --theme          Specify the theme to use.
+   --theme-dir      Specify the path to the theme templates.
+   --url-prefix     Specify the prefix to the generated blog.
+
+  Counting Options:
+
+   --comment-days=N    The maximum age a post may allow comments.
+   --entry-count=N     Number of posts to show on the index.
+   --rss-count=N       Number of posts to include on the RSS index feed.
+
+  Optional Features:
+
+   --author        Specify the author's email address
+   --blog-subtitle Set the title of the blog
+   --blog-title    Set the title of the blog
+   --force         Always regenerate pages.
+
+  Help Options:
+
+   --help         Show the help information for this script.
+   --list-plugins List the available plugins.
+   --list-themes  List the available themes.
+   --manual       Read the manual for this script.
+   --verbose      Show useful debugging information.
+   --version      Show the version number and exit.
+
+=cut
+
+=head1 ABOUT
+
+Proof of concept Chronicle successor which uses SQLite to generate a static
+blog with support for comments.
+
+The key observation which has lead to this prototype is that rebuilding a
+blog with chronicle is slow because every file must be parsed and processed
+in a large data-structure, in ram, on every run.
+
+However 90% of the time when a blog is rebuilt it is only to include a
+new user-submitted comment, or a new entry.  There are rarely changes
+applied to previous posts.
+
+If we parse all the blog entries *ONCE* and insert into a persistent SQLite
+database we can query that for reading tag-data, archives, etc, and this
+will be even faster thanreading our previous in-RAM data-structure.
+
+Because people are fallible we'll store the `mtime` of the blog-posts
+and include that in the database too, this will allow us to incorporate new
+posts and edits to old posts, without having to throw away our database.
+
+The average run of a blog with 1000 entries, and no changes, is 3 seconds
+and when changes have been detected, or we have to rebuild the SQLite
+database from scratch it is still ~10 seconds.  This is a considerable
+win.
+
+=cut
+
+=head1 DATABASE STRUCTURE
+
+We create a simple SQLite database with two tables:
+
+=over 8
+
+=item A table for tags, storing the tag-name and associated blog-entry.
+
+=item A table for blog entries.
+
+=back
+
+The blog-entry table contains the following columns:
+
+=over 8
+
+=item mtime
+The C<mtime> of the input file.
+
+=item date
+The date-header as self-reported in the blog-post.
+
+=item body
+The body of the blog-post itself.
+
+=item title
+The title of the blog-post itself.
+
+=back
+
+=cut
+
+=head1 EXTENDING WITH PLUGINS
+
+The core of this script is responsible for a small amount of things:
+
+=over 8
+
+=item Finding blog posts.
+
+=item Parsing them into the SQLite database.
+
+=item Cleaning up.
+
+=back
+
+Actually generating output is delegated to a series of plugins each of
+which is responsible for outputing one thing.  For example all of the
+tag-pages, located beneath C</tags/> in your generated site, are generated
+by the plugin L<Chronicle::Plugin::Generate::Tags>.
+
+The core will call the following methods if present in plugins:
+
+=over 8
+
+=item on_db_create
+This is called if the SQLite database does not exist, and can be used to add new columns, or tables.
+
+=item on_db_open
+This is called when the database is opened, and we use it to set memory/sync options.  It could be used to do more.
+
+=item on_insert
+This method is invoked as a blog entry is read to disk before it is inserted into the database for the first time - or when the item on disk has been changed and the database entry must be refreshed.  This method is designed to handle Markdown expansion, etc.
+
+=item on_initiate
+This is called prior to any generation, with a reference to the configuration
+options and the database handle used for storage.
+
+=item on_generate
+This is called to generate the output pages.  There is no logical difference between this method and C<on_initiate> except that the former plugin methods are guaranteed to have been called prior to C<on_generate> being invoked.  Again a reference to the configuration options, and the database handle is provided.
+
+=back
+
+Any plugin in the C<Chronicle::Plugin::> namespace will be loaded when the
+script starts.
+
+**NOTE**: It is not necessary for a plugin to define all three methods.
+
+Much of the core functionality, such as the generation of the main RSS feed,
+is implemented as plugins.  You might wish to disable plugins, and this
+can be done via command-line flags such as C<--exclude-plugin=RSS,Verbose>.
+
+=cut
+
+
+=head1 AUTHOR
+
+ Steve
+ --
+ http://www.steve.org.uk/
+
+=cut
+
+=head1 LICENSE
+
+Copyright (c) 2014 by Steve Kemp.  All rights reserved.
+
+This module is free software;
+you can redistribute it and/or modify it under
+the same terms as Perl itself.
+The LICENSE file contains the full text of the license.
+
+=cut
+
+
+use strict;
+use warnings;
+
+
+package Chronicle;
+use Module::Pluggable::Ordered require => 1, inner => 0;
+
+our $VERSION = "5.0";
+
+use DBI;
+use Date::Format;
+use Date::Parse;
+use Digest::MD5 qw(md5_hex);
+use File::Path;
+use File::Basename;
+use File::ShareDir;
+use Getopt::Long;
+use HTML::Template;
+use Pod::Usage;
+
+
+
+#
+#  Default options - These may be overridden by the command-line
+# or via the configuration files:
+#
+#   /etc/chronicle/config
+#   ~/.chronicle/config
+#
+#  NOTE: These filenames we deliberately chosen to avoid clashing
+# with previous releases of chronicle.
+#
+our %CONFIG;
+$CONFIG{ 'input' }        = "./data";
+$CONFIG{ 'pattern' }      = "*.txt";
+$CONFIG{ 'output' }       = "./output";
+$CONFIG{ 'comment-days' } = 10;
+$CONFIG{ 'entry-count' }  = 10;
+$CONFIG{ 'rss-count' }    = 10;
+$CONFIG{ 'theme-dir' }    = File::ShareDir::dist_dir('Chronicle');
+$CONFIG{ 'theme' }        = "default";
+$CONFIG{ 'verbose' }      = 0;
+$CONFIG{ 'top' }          = "/";
+
+#
+#  Options here are passed to all templates
+#
+our %GLOBAL_TEMPLATE_VARS = ();
+
+
+#
+#  Read the global and per-user configuration file, if present.
+#
+readConfigurationFile("/etc/chronicle/config");
+readConfigurationFile( $ENV{ 'HOME' } . "/.chronicle/config" );
+
+
+#
+#  Parse our command-line options
+#
+parseCommandLine();
+
+
+#
+#  If we have a configuration file then read it.
+#
+readConfigurationFile( $CONFIG{ 'config' } ) if ( defined $CONFIG{ 'config' } );
+
+
+#
+# Get the database handle, creating the database on-disk if necessary.
+#
+my $dbh = getDatabase();
+
+
+#
+#  Parse/update blog posts from our input directory.
+#
+updateDatabase($dbh);
+
+
+#
+#  Ensure we have an output directory.
+#
+File::Path::make_path( $CONFIG{ 'output' },
+                       {  verbose => 0,
+                          mode    => oct("755"),
+                       } ) unless ( -d $CONFIG{ 'output' } );
+
+
+
+#
+#  Call on_initiate for all plugins which have not been excluded.
+#
+foreach my $plugin ( get_plugins_for_method("on_initiate") )
+{
+    $CONFIG{ 'verbose' } && print "Calling $plugin on_initiate()\n";
+    $plugin->on_initiate( config => \%CONFIG, dbh => $dbh );
+}
+
+
+#
+#  Call on_generate for all plugins which have not been excluded.
+#
+#  `on_generate` is logically identical to `on_initiate`, except
+# the former plugins are guranteed to have been invoked first.
+#
+foreach my $plugin ( get_plugins_for_method("on_generate") )
+{
+    $CONFIG{ 'verbose' } && print "Calling $plugin on_generate()\n";
+    $plugin->on_generate( config => \%CONFIG, dbh => $dbh );
+}
+
+
+#
+#  Copy any static content from the theme-directory.
+#
+my $ts = $CONFIG{ 'theme-dir' } . "/" . $CONFIG{ 'theme' } . "/static";
+if ( -d $ts )
+{
+
+    #
+    #  This could be improved, but it will cope with subdirectories, etc,
+    # so for the moment it will remain.
+    #
+    system("/bin/tar -C $ts -cpf - . | /bin/tar -C $CONFIG{'output'} -xf -");
+}
+
+
+#
+#  Now we're done.
+#
+$dbh->disconnect();
+exit(0);
+
+
+
+
+=begin doc
+
+Read each blog-post from beneath ./data/ - and if it is missing from the
+database then insert it.
+
+We also handle the case where the file on disk is newer than the database
+version - in that case we remove the database version and update it to
+contain the newer content.
+
+=end doc
+
+=cut
+
+sub updateDatabase
+{
+    my ($dbh) = (@_);
+
+    #
+    #  Assume each entry is already present in the database.
+    #
+    my $sql =
+      $dbh->prepare("SELECT id FROM blog WHERE ( file=? AND mtime=? )") or
+      die "Failed to select post";
+
+
+    #
+    #  Look for posts.
+    #
+    foreach my $file ( glob( $CONFIG{ 'input' } . "/" . $CONFIG{ 'pattern' } ) )
+    {
+
+        #
+        # We want to find the mtime to see if it is newer than the DB-version.
+        #
+        my ( $dev,   $ino,     $mode, $nlink, $uid,
+             $gid,   $rdev,    $size, $atime, $mtime,
+             $ctime, $blksize, $blocks
+           ) = stat($file);
+
+
+        #
+        #  Lookup the existing entry
+        #
+        $sql->execute( $file, $mtime ) or
+          die "Failed to execute: " . $dbh->errstr();
+        my $result = $sql->fetchrow_hashref();
+
+        if ( !$result )
+        {
+
+            #
+            #  The file is not in the database, or it is present with a
+            # different modification time.
+            #
+            #  Parse the file and insert it.
+            #
+            insertPost( $dbh, $file, $mtime );
+        }
+    }
+
+    $sql->finish();
+}
+
+
+
+=begin doc
+
+Given a filename containing a blog post then insert that post into
+the database.
+
+We also update the tags.
+
+=end doc
+
+=cut
+
+sub insertPost
+{
+    my ( $dbh, $filename, $mtime ) = (@_);
+
+    $CONFIG{ 'verbose' } && print "Adding post to DB: $filename\n";
+
+    #
+    #  Is the entry present, but with a different mtime?
+    #
+    #  If so we need to delete the post, and the tags which are pointing
+    # at it, otherwise we'll have orphaned tags.
+    #
+    my $sql = $dbh->prepare("SELECT id FROM blog WHERE file=?");
+    $sql->execute($filename) or die "Failed to execute :" . $dbh->errstr();
+    my $id;
+    $sql->bind_columns( undef, \$id );
+
+    while ( $sql->fetch() )
+    {
+        $CONFIG{ 'verbose' } && print "Replacing DB post: $id\n";
+
+        #
+        #  Delete the tags referring to this old post.
+        #
+        my $del_tags = $dbh->prepare("DELETE FROM tags WHERE blog_id=?") or
+          die "Failed to prepare ";
+        $del_tags->execute($id) or
+          die "Failed to delete tags:" . $dbh->errstr();
+        $del_tags->finish();
+
+        #
+        #  Now delete the entry
+        #
+        my $del_blog = $dbh->prepare("DELETE FROM blog WHERE id=?") or
+          die "Failed to prepare ";
+        $del_blog->execute($id) or
+          die "Failed to delete blog:" . $dbh->errstr();
+        $del_blog->finish();
+    }
+    $sql->finish();
+
+
+    #
+    #  Read the actual entry from disk.
+    #
+    my $inHeader = 1;
+    open my $handle, "<:utf8", $filename or
+      die "Failed to read $filename $!";
+
+    #
+    #  The meta-data which comes from the posts header.
+    #
+    my %meta;
+
+    while ( my $line = <$handle> )
+    {
+        if ( $inHeader > 0 )
+        {
+
+            #
+            #  If the line has the form of "key: value"
+            #
+            if ( $line =~ /^([^:]+):(.*)/ )
+            {
+                my $key = $1;
+                my $val = $2;
+
+                $key = lc($key);
+                $key =~ s/^\s+|\s+$//g;
+                $val =~ s/^\s+|\s+$//g;
+
+                #
+                #  "subject" is a synonym for "title".
+                #
+                $key = "title" if ( $key eq "subject" );
+
+                #
+                #  Update the value if there is one present,
+                # and we've not already saved that one away.
+                #
+                $meta{ $key } = $val
+                  if ( defined($val) && length($val) && !$meta{ $key } );
+
+            }
+            else
+            {
+
+                #
+                #  Empty line == end of header
+                #
+                $inHeader = 0 if ( $line =~ /^$/ );
+            }
+        }
+        else
+        {
+            $meta{ 'body' } .= $line;
+        }
+    }
+    close($handle);
+
+
+    #
+    #  Generate the link from the title of the post.
+    #
+    $meta{ 'link' } = $meta{ 'title' };
+    $meta{ 'link' } =~ s/\.txt//g;
+    $meta{ 'link' } =~ s/[^a-z0-9]/_/gi;
+    $meta{ 'link' } .= ".html";
+    $meta{ 'link' } = lc( $meta{ 'link' } );
+
+    #
+    #  Are we going to skip this post?
+    #
+    my $skip = 0;
+
+    #
+    #  Update our meta-data via any loaded plugins.
+    #
+    foreach my $plugin ( get_plugins_for_method("on_insert") )
+    {
+        $CONFIG{ 'verbose' } && print "Calling $plugin - on_insert\n";
+        my $m = $plugin->on_insert( config => \%CONFIG,
+                                    dbh    => $dbh,
+                                    data   => \%meta
+                                  );
+
+        if ( !$m )
+        {
+
+            #
+            #  We'll skip any post if the insert plugin returned an
+            # empty value.
+            #
+            $skip = 1;
+        }
+        else
+        {
+
+            #
+            #  If we know we're going to skip this post then we'll
+            # not update the meta-data, which will ensure that
+            # future plugins won't have empty data-structures.
+            #
+            #  This isn't essential but it helps avoid warnings or
+            # weirdness.
+            #
+            %meta = %$m;
+        }
+    }
+
+
+    if ($skip)
+    {
+        $CONFIG{ 'verbose' } && print "Skipping post: $filename\n";
+        return;
+    }
+
+
+    #
+    #  Convert the date to a seconds past epoch.
+    #
+    if ( !$meta{ 'date' } )
+    {
+        die "Post is missing a date header - $filename\n";
+    }
+    else
+    {
+        $meta{ 'date' } = str2time( $meta{ 'date' } );
+    }
+
+    #
+    #  Now insert
+    #
+    my $post_add = $dbh->prepare(
+        "INSERT INTO blog (file,date,title,link,mtime,body) VALUES( ?,?,?,?,?,?)"
+      ) or
+      die "Failed to prepare";
+
+    $post_add->execute( $filename,
+                        $meta{ 'date' },
+                        $meta{ 'title' },
+                        $meta{ 'link' },
+                        $mtime, $meta{ 'body' } ) or
+      die "Failed to insert:" . $dbh->errstr();
+
+    my $blog_id = $dbh->func('last_insert_rowid');
+
+
+    #
+    #  Add any tags the post might contain.
+    #
+    if ( $meta{ 'tags' } )
+    {
+        my $tag_add =
+          $dbh->prepare("INSERT INTO tags (blog_id, name) VALUES( ?,?)") or
+          die "Failed to prepare";
+
+        foreach my $tag ( split( /,/, $meta{ 'tags' } ) )
+        {
+
+            # strip leading and trailing space.
+            $tag =~ s/^\s+//;
+            $tag =~ s/\s+$//;
+
+            # skip empty tags.
+            next if ( !length($tag) );
+
+            #
+            #  Find the tag ID
+            #
+            $tag_add->execute( $blog_id, $tag ) or
+              die "Failed to execute:" . $dbh->errstr();
+        }
+    }
+}
+
+
+
+=begin doc
+
+Create a database handle, if necessary creating the tables first.
+
+=end doc
+
+=cut
+
+sub getDatabase
+{
+    my $file    = $ENV{ 'HOME' } . "/blog.db";
+    my $present = 0;
+    $present = 1 if ( -e $file );
+
+
+    my $dbh = DBI->connect( "dbi:SQLite:dbname=$file", "", "" );
+
+    if ( !$present )
+    {
+
+        $dbh->do(
+            "CREATE TABLE blog (id INTEGER PRIMARY KEY, file, date,title, link,mtime, body );"
+        );
+        $dbh->do("CREATE TABLE tags (id INTEGER PRIMARY KEY, name, blog_id );");
+
+
+        foreach my $plugin ( get_plugins_for_method("on_db_create") )
+        {
+            $CONFIG{ 'verbose' } && print "Calling $plugin - on_db_create\n";
+            $plugin->on_db_create( config => \%CONFIG,
+                                   dbh    => $dbh, );
+        }
+
+    }
+
+
+    foreach my $plugin ( get_plugins_for_method("on_db_load") )
+    {
+        $CONFIG{ 'verbose' } && print "Calling $plugin - on_db_load\n";
+        $plugin->on_db_load( config => \%CONFIG,
+                             dbh    => $dbh, );
+    }
+
+    return ($dbh);
+}
+
+
+
+=begin doc
+
+Fetch the blog post with the given ID
+
+=end doc
+
+=cut
+
+sub getBlog
+{
+    my ( $dbh, $id ) = (@_);
+
+    #
+    #  Get the blog-post
+    #
+    my $sql = $dbh->prepare("SELECT * FROM blog WHERE id=?") or
+      die "Failed to prepare";
+    $sql->execute($id) or
+      die "Failed to execute:" . $dbh->errstr();
+    my $data = $sql->fetchrow_hashref();
+    $sql->finish();
+
+    #
+    #  Get the tags, if any
+    #
+    my $tags =
+      $dbh->prepare("SELECT name FROM tags WHERE blog_id=? ORDER by name ASC")
+      or
+      die "Failed to prepare";
+    my $name;
+    $tags->execute($id) or die "Failed to execute: " . $dbh->errstr();
+    $tags->bind_columns( undef, \$name );
+    while ( $tags->fetch() )
+    {
+        my $x = $data->{ 'tags' };
+        push( @$x, { tag => $name } );
+        $data->{ 'tags' } = $x;
+    }
+    $tags->finish();
+
+    #
+    #  Generate the date/time from mtime;
+    #
+    #  If the date is set then we use it, and get the time from the mtime
+    #
+    #  If the date is not set then we use the mtime for both date & time.
+    #
+    my $time;
+    my $posted = $data->{ 'date' };
+    $data->{ 'posted' } = $data->{ 'date' };
+    if ( $data->{ 'date' } )
+    {
+        $time = $data->{ 'date' };
+    }
+    else
+    {
+        $time = $data->{ 'mtime' };
+    }
+    my $hms = time2str( "%H:%M:%S", $time );
+    my $tz  = time2str( "%z",       $time );
+
+
+    if ( $hms eq '00:00:00' )
+    {
+        $hms = time2str( "%H:%M:%S", $data->{ 'mtime' }, "GMT" );
+        $tz = "GMT";
+    }
+
+    $data->{ 'date' }      = time2str( "%a, %e %b %Y $hms $tz", $time );
+    $data->{ 'date_only' } = time2str( "%e %B %Y",              $time );
+    $data->{ 'time' }      = $hms;
+
+
+    #
+    #  Add on comments to this post.
+    #
+    my $comments = getComments( $data->{ 'link' } );
+    if ($comments)
+    {
+        $data->{ 'comments' } = $comments;
+
+        my $count = scalar(@$comments);
+        $data->{ 'comment_count' }  = $count;
+        $data->{ 'comment_plural' } = 1
+          if ( ( $count == 0 ) || ( $count > 1 ) );
+    }
+
+
+    #
+    #  If the post is less than 10 days old
+    #
+    my $now = time;
+    my $ago = $now - $posted;
+    my $age = ( ( 60 * 60 * 24 ) * ( $CONFIG{ 'comment-days' } ) );
+
+    if ( $ago < $age )
+    {
+        $data->{ 'comments_enabled' } = 1;
+    }
+    else
+    {
+        $data->{ 'comments_enabled' } = undef;
+    }
+
+    return ($data);
+}
+
+
+
+=begin doc
+
+Get the cooments associated with a post.
+
+=end doc
+
+=cut
+
+sub getComments
+{
+    my ($title) = (@_);
+
+    #
+    #  If there is no comment-directory setup then return nothing.
+    #
+    return unless ( $CONFIG{ 'comments' } );
+
+    #
+    #  If there is a comment-directory setup, but it doesn't exist
+    # then again we do nothing.
+    #
+    return unless ( -d $CONFIG{ 'comments' } );
+
+
+    my $results;
+
+    if ( $title =~ /^(.*)\.([^.]+)$/ )
+    {
+        $title = $1;
+    }
+
+    #
+    #  Find each comment file.
+    #
+    my @entries;
+    foreach
+      my $file ( sort( glob( $CONFIG{ 'comments' } . "/" . $title . "*" ) ) )
+    {
+        push( @entries, $file );
+    }
+
+    #
+    # Sort them into order.
+    #
+    @entries = sort {( stat($a) )[9] <=> ( stat($b) )[9]} @entries;
+
+    #
+    #  Now process them.
+    #
+    foreach my $file (@entries)
+    {
+        my $date    = "";
+        my $name    = "";
+        my $link    = "";
+        my $body    = "";
+        my $mail    = "";
+        my $pubdate = "";
+
+        if ( $file =~ /^(.*)\.([^.]+)$/ )
+        {
+            $date = $2;
+
+            if ( $date =~ /(.*)-([0-9:]+)/ )
+            {
+                my $d = $1;
+                my $t = $2;
+
+                $d =~ s/-/ /g;
+
+                $date = "Submitted at $t on $d";
+            }
+        }
+
+        open my $comment, "<:utf8", $file or
+          next;
+
+        foreach my $line (<$comment>)
+        {
+            next if ( !defined($line) );
+
+            chomp($line);
+
+            next if ( $line =~ /^IP-Address:/ );
+            next if ( $line =~ /^User-Agent:/ );
+
+            if ( !length($name) && $line =~ /^Name: (.*)/i )
+            {
+                $name = $1;
+            }
+            elsif ( !length($mail) && $line =~ /^Mail: (.*)/i )
+            {
+                $mail = $1;
+            }
+            elsif ( !length($link) && $line =~ /^Link: (.*)/i )
+            {
+                $link = $1;
+            }
+            else
+            {
+                $body .= $line . "\n";
+            }
+        }
+        close($comment);
+
+        if ( length($name) &&
+             length($mail) &&
+             length($body) )
+        {
+
+            #
+            #  Add a gravitar link to the comment in case the
+            # theme wishes to use it.
+            #
+            my $default  = "";
+            my $size     = 32;
+            my $gravitar = "http://www.gravatar.com/avatar.php?gravatar_id=" .
+              md5_hex( lc $mail ) . ";size=" . $size;
+
+            #
+            # A comment which was submitted by the blog author might
+            # have special theming.
+            #
+            my $author = 0;
+            $author = 1
+              if ( $CONFIG{ 'author' } &&
+                   ( lc($mail) eq lc( $CONFIG{ 'author' } ) ) );
+
+            #
+            # Store the comment
+            #
+            push( @$results,
+                  {  name     => $name,
+                     author   => $author,
+                     gravitar => $gravitar,
+                     link     => $link,
+                     mail     => $mail,
+                     body     => $body,
+                     date     => $date,
+                  } );
+
+        }
+        else
+        {
+            $CONFIG{ 'verbose' } &&
+              print
+              "I didn't like length of \$name ($name), \$mail ($mail) or \$body ($body)\n";
+        }
+    }
+
+    return ($results);
+}
+
+
+
+=begin doc
+
+Paying attention to our theme, load a template.
+
+=end doc
+
+=cut
+
+sub load_template
+{
+    my ($filename) = (@_);
+
+    #
+    #  Ensure we have a theme.
+    #
+    die "You must specify a theme with --theme"
+      unless ( $CONFIG{ 'theme' } );
+
+    #
+    #  Ensure things exist.
+    #
+    die "The theme directory specified with 'theme-dir' doesn't exist"
+      unless ( -d $CONFIG{ 'theme-dir' } );
+
+    die
+      "The theme '$CONFIG{'theme'}' doesn't exist beneath $CONFIG{'theme-dir'}!"
+      unless ( -d $CONFIG{ 'theme-dir' } . "/" . $CONFIG{ 'theme' } );
+
+
+    #
+    #  The complete path to the template
+    #
+    my $path =
+      $CONFIG{ 'theme-dir' } . "/" . $CONFIG{ 'theme' } . "/" . $filename;
+
+
+    my $tmpl = HTML::Template->new(
+                    utf8     => 1,
+                    filename => $path,
+                    path => [$CONFIG{ 'theme-dir' } . "/" . $CONFIG{ 'theme' }],
+                    die_on_bad_params => 0,
+                    loop_context_vars => 1,
+                    global_vars       => 1,
+    );
+
+    #
+    #  Legacy options.
+    #
+    $tmpl->param( blog_title => $CONFIG{ 'blog_title' } )
+      if ( $CONFIG{ 'blog_title' } );
+    $tmpl->param( blog_subtitle => $CONFIG{ 'blog_subtitle' } )
+      if ( $CONFIG{ 'blog_subtitle' } );
+
+    #
+    #  If we have global options then set them.
+    #
+    $tmpl->param( \%GLOBAL_TEMPLATE_VARS );
+    return ($tmpl);
+}
+
+
+
+=begin doc
+
+Parse the command-line options.
+
+=end doc
+
+=cut
+
+sub parseCommandLine
+{
+    my $HELP   = 0;
+    my $MANUAL = 0;
+
+    #
+    #  Parse options.
+    #
+    if (
+        !GetOptions(
+
+            # Help options
+            "help",    \$HELP,
+            "manual",  \$MANUAL,
+            "verbose", \$CONFIG{ 'verbose' },
+            "version", \$CONFIG{ 'version' },
+
+            # theme support
+            "theme=s",     \$CONFIG{ 'theme' },
+            "theme-dir=s", \$CONFIG{ 'theme-dir' },
+            "list-themes", \$CONFIG{ 'list-themes' },
+
+            # paths
+            "input=s",    \$CONFIG{ 'input' },
+            "output=s",   \$CONFIG{ 'output' },
+            "pattern=s",  \$CONFIG{ 'pattern' },
+            "comments=s", \$CONFIG{ 'comments' },
+
+            # limits
+            "entry-count=s", \$CONFIG{ 'entry-count' },
+            "rss-count=s",   \$CONFIG{ 'rss-count' },
+
+            # optional
+            "config=s",       \$CONFIG{ 'config' },
+            "author=s",       \$CONFIG{ 'author' },
+            "comment-days=s", \$CONFIG{ 'comment-days' },
+            "force",          \$CONFIG{ 'force' },
+
+            # plugins
+            "list-plugins",      \$CONFIG{ 'list-plugins' },
+            "exclude-plugins=s", \$CONFIG{ 'exclude-plugins' },
+
+            # title
+            "blog-title=s",    \$CONFIG{ 'blog_title' },
+            "blog-subtitle=s", \$CONFIG{ 'blog_subtitle' },
+
+            # prefix
+            "url-prefix=s", \$CONFIG{ 'top' },
+
+        ) )
+    {
+        exit;
+    }
+
+    pod2usage(1) if $HELP;
+    pod2usage( -verbose => 2 ) if $MANUAL;
+
+    #
+    #  Show our version number, and terminate.
+    #
+    if ( $CONFIG{ 'version' } )
+    {
+        print "Chronicle $VERSION\n";
+        exit(0);
+    }
+
+    #
+    #  List themes.
+    #
+    if ( $CONFIG{ 'list-themes' } )
+    {
+
+        #
+        #  Global themese
+        #
+        my $global = File::ShareDir::dist_dir('Chronicle');
+
+        #
+        #  The theme-directories we'll inspect
+        #
+        my @dirs = ();
+        push( @dirs, $global );
+        if ( $CONFIG{ 'theme-dir' } && ( $CONFIG{ 'theme-dir' } ne $global ) )
+        {
+            push( @dirs, $CONFIG{ 'theme-dir' } );
+        }
+
+        #
+        #  For each global/local directory show the contents.
+        #
+        foreach my $dir (@dirs)
+        {
+            print "Themes beneath $dir\n";
+
+            foreach my $ent ( glob( $dir . "/*" ) )
+            {
+                my $name = File::Basename::basename($ent);
+                print "\t" . $name . "\n" if ( -d $ent );
+            }
+        }
+        exit(0);
+    }
+
+    #
+    #  List plugins
+    #
+    if ( $CONFIG{ 'list-plugins' } )
+    {
+        for my $plugin ( Chronicle->plugins_ordered() )
+        {
+            print $plugin . "\n";
+
+            if ( $CONFIG{ 'verbose' } )
+            {
+                foreach my $method (
+                    sort
+                    qw! on_db_create on_db_load on_insert on_initiate on_generate  !
+                  )
+                {
+                    if ( $plugin->can($method) )
+                    {
+                        print "\t$method\n";
+                    }
+                }
+            }
+        }
+        exit 0;
+    }
+}
+
+
+=begin doc
+
+Read the specified configuration file if it exists.
+
+=end doc
+
+=cut
+
+sub readConfigurationFile
+{
+    my ($file) = (@_);
+
+    #
+    #  If it doesn't exist ignore it.
+    #
+    return if ( !-e $file );
+
+
+    my $line = "";
+
+    open my $handle, "<:utf8", $file or
+      die "Cannot read file '$file' - $!";
+    while ( defined( $line = <$handle> ) )
+    {
+        chomp $line;
+        if ( $line =~ s/\\$// )
+        {
+            $line .= <FILE>;
+            redo unless eof(FILE);
+        }
+
+        # Skip lines beginning with comments
+        next if ( $line =~ /^([ \t]*)\#/ );
+
+        # Skip blank lines
+        next if ( length($line) < 1 );
+
+        # Strip trailing comments.
+        if ( $line =~ /(.*)\#(.*)/ )
+        {
+            $line = $1;
+        }
+
+        # Find variable settings
+        if ( $line =~ /([^=]+)=([^\n]+)/ )
+        {
+            my $key = $1;
+            my $val = $2;
+
+            # Strip leading and trailing whitespace.
+            $key =~ s/^\s+//;
+            $key =~ s/\s+$//;
+            $val =~ s/^\s+//;
+            $val =~ s/\s+$//;
+
+            # command expansion?
+            if ( $val =~ /(.*)`([^`]+)`(.*)/ )
+            {
+
+                # store
+                my $pre  = $1;
+                my $cmd  = $2;
+                my $post = $3;
+
+                # get output
+                my $output = `$cmd`;
+                chomp($output);
+
+                # build up replacement.
+                $val = $pre . $output . $post;
+            }
+
+            # Store value.
+            $CONFIG{ $key } = $val;
+        }
+    }
+
+    close($handle);
+}
+
+
+=begin doc
+
+Return an array of plugins that implement the given method.
+
+This result set will exclude anything that has been deliberately
+excluded by the user.
+
+=end doc
+
+=cut
+
+sub get_plugins_for_method
+{
+    my ($method) = (@_);
+
+    my @plugins = ();
+
+    #
+    #  Call any on_initiate plugins we might have loaded.
+    #
+    for my $plugin ( Chronicle->plugins_ordered() )
+    {
+        my $skip = 0;
+
+        if ( $CONFIG{ 'exclude-plugins' } )
+        {
+            foreach my $exclude ( split( /,/, $CONFIG{ 'exclude-plugins' } ) )
+            {
+
+                # strip leading and trailing space.
+                $exclude =~ s/^\s+//;
+                $exclude =~ s/\s+$//;
+
+                # skip empty tags.
+                next if ( !length($exclude) );
+
+                $skip = 1 if ( $plugin =~ /\Q$exclude\E/i );
+            }
+        }
+
+        next if ($skip);
+        next unless $plugin->can($method);
+
+        push( @plugins, $plugin );
+    }
+
+    return (@plugins);
+}
