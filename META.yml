@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               App-Chronicle
-version:            5.0.1
+version:            5.0.2
 abstract:           A static blog-compiler with minimal dependencies.
 author:
     - Steve Kemp <steve@steve.org.uk>
@@ -26,6 +26,8 @@ requires:
     Module::Pluggable::Ordered:  0
     perl:                 5.008
     Pod::Usage:           0
+    Text::Markdown:       0
+    Text::Textile:        0
 resources:
     bugtracker:  https://github.com/skx/chronicle2/issues
     GitMirror:   http://git.steve.org.uk/cpan/chronicle2

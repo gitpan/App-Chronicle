@@ -1,10 +1,12 @@
 
 * Homepage:
-   * http://www.steve.org.uk/Software/chronicle/
+    * http://www.steve.org.uk/Software/chronicle/
 * Git Repository:
-   * http://github.com/skx/chronicle2
+    * http://github.com/skx/chronicle2
+* Git mirror:
+    * http://git.steve.org.uk/cpan/chronicle2
 * Real World Use:
-   * http://blog.steve.org.uk/
+    * http://blog.steve.org.uk/
 
 
 chronicle
@@ -83,7 +85,7 @@ you should be able to generate your blog like so:
 This will read `path/to/input/*.txt` and generate the blog beneath
 the directory `/path/to/output/` creating that directory if missing.
 
-The SQLite database will be created at `~/blog.db`, and if it is
+The SQLite database will be created at `./blog.db` by default, and if it is
 deleted it will be regenerated.
 
 

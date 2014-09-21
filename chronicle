@@ -15,6 +15,7 @@ chronicle - A static blog-compiler.
 
    --comments       Specify the path to the optional comments directory.
    --config         Specify a configuration file to read.
+   --database       Specify the path to the SQLite database to create/use.
    --input          Specify the input directory to use.
    --output         Specify the directory to write output to.
    --pattern        Specify the pattern of files to work with.
@@ -76,7 +77,7 @@ win.
 
 =head1 DATABASE STRUCTURE
 
-We create a simple SQLite database with two tables:
+We create a simple SQLite database, at C<./blog.db> by default, with two tables:
 
 =over 8
 
@@ -186,7 +187,7 @@ use warnings;
 package Chronicle;
 use Module::Pluggable::Ordered require => 1, inner => 0;
 
-our $VERSION = "5.0.1";
+our $VERSION = "5.0.2";
 
 use DBI;
 use Date::Format;
@@ -215,6 +216,7 @@ our %CONFIG;
 $CONFIG{ 'input' }        = "./data";
 $CONFIG{ 'pattern' }      = "*.txt";
 $CONFIG{ 'output' }       = "./output";
+$CONFIG{ 'database' }     = "./blog.db";
 $CONFIG{ 'comment-days' } = 10;
 $CONFIG{ 'entry-count' }  = 10;
 $CONFIG{ 'rss-count' }    = 10;
@@ -439,7 +441,7 @@ sub insertPost
     #  Read the actual entry from disk.
     #
     my $inHeader = 1;
-    open my $handle, "<:utf8", $filename or
+    open my $handle, "<:encoding(utf-8)", $filename or
       die "Failed to read $filename $!";
 
     #
@@ -502,6 +504,11 @@ sub insertPost
     $meta{ 'link' } =~ s/[^a-z0-9]/_/gi;
     $meta{ 'link' } .= ".html";
     $meta{ 'link' } = lc( $meta{ 'link' } );
+
+    #
+    #  Let any plugins have access to the filename.
+    #
+    $meta{ 'file' } = $filename;
 
     #
     #  Are we going to skip this post?
@@ -621,12 +628,27 @@ Create a database handle, if necessary creating the tables first.
 
 sub getDatabase
 {
-    my $file    = $ENV{ 'HOME' } . "/blog.db";
+
+    #
+    #  Is the database already present?
+    #
     my $present = 0;
-    $present = 1 if ( -e $file );
+
+    #
+    #  Ensure we have something specified.
+    #
+    die "No database configured - please use --database=/path/tocreate"
+      unless ( $CONFIG{ 'database' } );
+
+    #
+    #  Does it exist?
+    #
+    $present = 1 if ( -e $CONFIG{ 'database' } );
 
 
-    my $dbh = DBI->connect( "dbi:SQLite:dbname=$file", "", "" );
+    my $dbh = DBI->connect( "dbi:SQLite:dbname=$CONFIG{'database'}", "", "" );
+
+    $dbh->{ sqlite_unicode } = 1;
 
     if ( !$present )
     {
@@ -841,7 +863,7 @@ sub getComments
             }
         }
 
-        open my $comment, "<:utf8", $file or
+        open my $comment, "<:encoding(utf-8)", $file or
           next;
 
         foreach my $line (<$comment>)
@@ -959,8 +981,8 @@ sub load_template
 
 
     my $tmpl = HTML::Template->new(
-                    utf8     => 1,
-                    filename => $path,
+                    open_mode => '<:encoding(UTF-8)',
+                    filename  => $path,
                     path => [$CONFIG{ 'theme-dir' } . "/" . $CONFIG{ 'theme' }],
                     die_on_bad_params => 0,
                     loop_context_vars => 1,
@@ -1026,6 +1048,7 @@ sub parseCommandLine
 
             # optional
             "config=s",       \$CONFIG{ 'config' },
+            "database=s",     \$CONFIG{ 'database' },
             "author=s",       \$CONFIG{ 'author' },
             "comment-days=s", \$CONFIG{ 'comment-days' },
             "force",          \$CONFIG{ 'force' },
@@ -1143,7 +1166,7 @@ sub readConfigurationFile
 
     my $line = "";
 
-    open my $handle, "<:utf8", $file or
+    open my $handle, "<:encoding(utf-8)", $file or
       die "Cannot read file '$file' - $!";
     while ( defined( $line = <$handle> ) )
     {

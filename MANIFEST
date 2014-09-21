@@ -1,4 +1,5 @@
 cgi-bin/comments.cgi
+ChangeLog
 chronicle
 COMMENTS.md
 lib/Chronicle/Plugin/Archived.pm
@@ -19,7 +20,6 @@ lib/Chronicle/Plugin/Textile.pm
 lib/Chronicle/Plugin/Verbose.pm
 lib/Chronicle/Plugin/Version.pm
 LICENSE
-Makefile
 Makefile.PL
 MANIFEST
 MANIFEST.SKIP
@@ -29,6 +29,7 @@ t/manifest.t
 t/pod.t
 t/style-no-tabs.t
 t/test-markdown-formatter.t
+t/test-skip-drafts.t
 t/test-strict.t
 t/test-textile-formatter.t
 t/test-version-insertion.t
@@ -45,6 +46,7 @@ themes/blog.steve.org.uk/inc/style.inc
 themes/blog.steve.org.uk/index.rss
 themes/blog.steve.org.uk/index.tmpl
 themes/blog.steve.org.uk/static/spiral.gif
+themes/blog.steve.org.uk/static/xml.gif
 themes/blog.steve.org.uk/tag.tmpl
 themes/blog.steve.org.uk/tag_index.tmpl
 themes/default/archive.tmpl
@@ -73,6 +75,7 @@ themes/leftbar/inc/style.inc
 themes/leftbar/index.rss
 themes/leftbar/index.tmpl
 themes/leftbar/static/spiral.gif
+themes/leftbar/static/xml.gif
 themes/leftbar/tag.tmpl
 themes/leftbar/tag_index.tmpl
 META.yml                                 Module meta-data (added by MakeMaker)
