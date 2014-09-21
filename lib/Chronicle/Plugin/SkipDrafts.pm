@@ -31,9 +31,6 @@ package Chronicle::Plugin::SkipDrafts;
 use strict;
 use warnings;
 
-use Date::Format;
-use Date::Parse;
-
 
 sub on_insert
 {
@@ -48,6 +45,7 @@ sub on_insert
     if ( $data->{ 'draft' } )
     {
         $config->{ 'verbose' } &&
+          $data->{ 'filename' } &&
           print "Skipping draft: $data->{'filename'} \n";
 
         ## no critic (ReturnUndef)

@@ -31,7 +31,6 @@ use warnings;
 
 use CGI;
 use Encode 'decode_utf8';
-use Text::Markdown;
 use POSIX qw(strftime);
 
 
@@ -41,6 +40,7 @@ use POSIX qw(strftime);
 #  In this case ~/comments/
 #
 my $COMMENT = $ENV{ 'DOCUMENT_ROOT' } . "../comments/";
+
 #my $COMMENT = (getpwuid $>)[7]  . "/comments";
 
 
@@ -186,9 +186,19 @@ print FILE "\n";
 
 
 #
-# Process the markdown.
+# Process the body into markdown if that module is available.
 #
-my $html = Text::Markdown::markdown($body);
+my $html = $body;
+
+my $test = "use Text::Markdown;";
+## no critic (Eval)
+eval($test);
+## use critic
+
+if ( !$@ )
+{
+    $html = Text::Markdown::markdown($body);
+}
 
 print FILE $html;
 close(FILE);

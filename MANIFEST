@@ -1,7 +1,9 @@
+bin/chronicle
 cgi-bin/comments.cgi
 ChangeLog
 chronicle
 COMMENTS.md
+lib/Chronicle/Config/Reader.pm
 lib/Chronicle/Plugin/Archived.pm
 lib/Chronicle/Plugin/DBTweak.pm
 lib/Chronicle/Plugin/Generate/Archive.pm
@@ -11,6 +13,8 @@ lib/Chronicle/Plugin/Generate/RSS.pm
 lib/Chronicle/Plugin/Generate/Sitemap.pm
 lib/Chronicle/Plugin/Generate/Tags.pm
 lib/Chronicle/Plugin/Markdown.pm
+lib/Chronicle/Plugin/PostBuild.pm
+lib/Chronicle/Plugin/PreBuild.pm
 lib/Chronicle/Plugin/SkipDrafts.pm
 lib/Chronicle/Plugin/Snippets/AllTags.pm
 lib/Chronicle/Plugin/Snippets/Archives.pm
@@ -28,6 +32,8 @@ t/load-modules.t
 t/manifest.t
 t/pod.t
 t/style-no-tabs.t
+t/test-archive-links.t
+t/test-config-reader.t
 t/test-markdown-formatter.t
 t/test-skip-drafts.t
 t/test-strict.t
