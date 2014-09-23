@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               App-Chronicle
-version:            5.0.4
+version:            5.0.5
 abstract:           A static blog-compiler with minimal dependencies.
 author:
     - Steve Kemp <steve@steve.org.uk>

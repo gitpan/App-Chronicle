@@ -1,14 +1,15 @@
 
 =head1 NAME
 
-Chronicle::Plugin::Snippets::Tags - Generate tags list.
+Chronicle::Plugin::Snippets::RecentTags - Generate a list of recent tags.
 
 =head1 DESCRIPTION
 
 This module will be invoked automatically when your site is built
 via the C<on_generate> hook which Chronicle provides.
 
-It is responsible for creating the a data-structure to show all tags.
+It is responsible for creating the a data-structure containing
+recently used tags.
 
 To use this plugin add the following to your theme:
 
@@ -100,6 +101,9 @@ This plugin must be called "early".
 This means we're called prior to any of the page-generation plugins, such
 that any page-templates which make use of the data-structure we've created
 are called after that structure is setup.
+
+This method is present such that L<Module::Pluggable::Ordered> can
+order our plugins.
 
 =cut
 
