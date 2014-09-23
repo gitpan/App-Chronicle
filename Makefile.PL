@@ -22,6 +22,7 @@ my %WriteMakefileArgs = (
     PREREQ_PM    => {
 
         'DBI'                        => 0,
+        'Date::Language'             => 0,
         'Date::Format'               => 0,
         'Date::Parse'                => 0,
         'Digest::MD5'                => 0,
@@ -40,11 +41,13 @@ my %WriteMakefileArgs = (
     TEST_REQUIRES => {
 
         # solely for the test-suite.
-        'Test::More'      => 0,
-        'Test::Pod'       => 0,
-        'Test::Strict'    => 0,
-        'Test::Exception' => 0,
-        'Test::NoTabs'    => 0,
+        'Test::More'          => 0,
+        'Test::Pod'           => 0,
+        'Test::Pod::Coverage' => 0,
+        'Test::Strict'        => 0,
+        'Test::Exception'     => 0,
+        'Test::NoTabs'        => 0,
+        'HTML::Tree'          => 0,
 
     },
 

@@ -13,21 +13,11 @@ which contain a list of previously created posts.
 
 =cut
 
-=head1 AUTHOR
+=head1 METHODS
 
-Steve Kemp <steve@steve.org.uk>
-
-=cut
-
-=head1 COPYRIGHT AND LICENSE
-
-Copyright (C) 2014 Steve Kemp <steve@steve.org.uk>.
-
-This library is free software. You can modify and or distribute it under
-the same terms as Perl itself.
+Now follows documentation on the available methods.
 
 =cut
-
 
 
 package Chronicle::Plugin::Generate::Archive;
@@ -35,14 +25,33 @@ package Chronicle::Plugin::Generate::Archive;
 use strict;
 use warnings;
 
+use Date::Language;
 
-=begin doc
+=head2 on_generate
 
-Output pages for each year/month we've ever seen `output/archive/$year/$mon`.
+The C<on_generate> method is automatically invoked to generate output
+pages.  This particular plugin method is invoked I<after> any
+C<on_initiate> methods which might be present.
 
-This is not yet complete and will need more love.
+This method is responsible for generating the archive-output, which
+includes two sets of pages:
 
-=end doc
+=over 8
+
+=item C</archive/index.html>
+
+This is created using the C<archive_index.tmpl> theme-template, and contains
+a list of all the year/month pairs which have blog-posts present for them.
+
+=item C</archive/$year/$mon/index.html>
+
+This is created for each distinct year/month pair, from the theme-template
+C<archive.tmpl>
+
+=back
+
+If either template is missing then this plugin will skip that part of
+the generation.
 
 =cut
 
@@ -53,21 +62,27 @@ sub on_generate
     my $dbh    = $args{ 'dbh' };
     my $config = $args{ 'config' };
 
+    #
+    #  Get our language
+    #
+    my $language = $ENV{ 'MONTHS' } || "English";
 
-    my %mons = ( "01" => 'January',
-                 "02" => 'February',
-                 "03" => 'March',
-                 "04" => 'April',
-                 "05" => 'May',
-                 "06" => 'June',
-                 "07" => 'July',
-                 "08" => 'August',
-                 "09" => 'September',
-                 "10" => 'October',
-                 "11" => 'November',
-                 "12" => 'December'
-               );
+    #
+    #  Now populate @MONTHS with the month names of that language.
+    #
+    my $fmt    = Date::Language->new($language);
+    my $fmtref = ref($fmt);
 
+    my $names_var = sprintf( '%s::MoY', $fmtref );
+    my @MONTHS;
+
+    {
+        ## no critic (ProhibitNoStrict)
+        no strict 'refs';
+        @MONTHS = @{ $names_var };
+        use strict 'refs';
+        ## use critic
+    }
 
 
     #
@@ -110,7 +125,7 @@ sub on_generate
             push( @$data,
                   {  year       => $year,
                      month      => $mon,
-                     month_name => $mons{ $mon },
+                     month_name => $MONTHS[$mon - 1],
                      count      => $index{ $year }{ $mon } } );
         }
     }
@@ -125,19 +140,24 @@ sub on_generate
     }
 
 
-    $config->{ 'verbose' } &&
-      print "Creating : $config->{'output'}/archive/index.html\n";
 
     my $c = Chronicle::load_template("archive_index.tmpl");
-    $c->param( top => $config->{ 'top' } );
-    $c->param( archive => $data ) if ($data);
-    open( my $handle, ">", "$config->{'output'}/archive/index.html" ) or
-      die "Failed to open";
-    print $handle $c->output();
-    close($handle);
+    if ($c)
+    {
+        $config->{ 'verbose' } &&
+          print "Creating : $config->{'output'}/archive/index.html\n";
+        $c->param( top => $config->{ 'top' } );
+        $c->param( archive => $data ) if ($data);
+        open( my $handle, ">:encoding(UTF-8)",
+              "$config->{'output'}/archive/index.html" ) or
+          die "Failed to open";
+        print $handle $c->output();
+        close($handle);
+    }
 
 
     $c = Chronicle::load_template("/archive.tmpl");
+    return if ( !$c );
 
     #
     #  Foreach year/mon pair
@@ -188,7 +208,7 @@ sub on_generate
         $c->param( top        => $config->{ 'top' } );
         $c->param( entries    => $entries );
         $c->param( month      => $mon, year => $year );
-        $c->param( month_name => $mons{ $mon } );
+        $c->param( month_name => $MONTHS[$mon - 1] );
         open( my $handle, ">:encoding(UTF-8)",
               "$config->{'output'}/archive/$year/$mon/index.html" ) or
           die "Failed to open";

@@ -1,7 +1,7 @@
 
 =head1 NAME
 
-Chronicle::Plugin::Version - Make the chronicle version available to templates
+Chronicle::Plugin::Snippets::Version - Make the chronicle version available to templates
 
 =head1 DESCRIPTION
 
@@ -17,32 +17,26 @@ This can be used in templates like so:
 
 =cut
 
-=head1 AUTHOR
+=head1 METHODS
 
-Steve Kemp <steve@steve.org.uk>
-
-=cut
-
-=head1 COPYRIGHT AND LICENSE
-
-Copyright (C) 2014 Steve Kemp <steve@steve.org.uk>.
-
-This library is free software. You can modify and or distribute it under
-the same terms as Perl itself.
+Now follows documentation on the available methods.
 
 =cut
 
-package Chronicle::Plugin::Version;
+package Chronicle::Plugin::Snippets::Version;
 
 use strict;
 use warnings;
 
 
-=begin doc
+=head2 on_initiate
 
-Update the global variables with a reference to our release version.
+The C<on_initiate> method is automatically invoked just before any
+C<on_generate> methods which might be present.
 
-=end doc
+This method updates the global variables, which are made available to
+all loaded templates, to define a C<release> variable containing the
+current release number.
 
 =cut
 
