@@ -22,8 +22,13 @@ Now follows documentation on the available methods.
 
 package Chronicle::Plugin::Generate::Archive;
 
+
 use strict;
 use warnings;
+
+
+our $VERSION = "5.0.6";
+
 
 use Date::Language;
 
@@ -156,8 +161,6 @@ sub on_generate
     }
 
 
-    $c = Chronicle::load_template("/archive.tmpl");
-    return if ( !$c );
 
     #
     #  Foreach year/mon pair
@@ -205,6 +208,10 @@ sub on_generate
           print
           "Creating : $config->{'output'}/archive/$year/$mon/index.html\n";
 
+
+        $c = Chronicle::load_template("/archive.tmpl");
+        return if ( !$c );
+
         $c->param( top        => $config->{ 'top' } );
         $c->param( entries    => $entries );
         $c->param( month      => $mon, year => $year );
@@ -218,7 +225,27 @@ sub on_generate
 
     }
 
-
 }
 
+
 1;
+
+
+=head1 LICENSE
+
+This module is free software; you can redistribute it and/or modify it
+under the terms of either:
+
+a) the GNU General Public License as published by the Free Software
+Foundation; either version 2, or (at your option) any later version,
+or
+
+b) the Perl "Artistic License".
+
+=cut
+
+=head1 AUTHOR
+
+Steve Kemp <steve@steve.org.uk>
+
+=cut

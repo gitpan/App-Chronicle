@@ -20,8 +20,12 @@ Now follows documentation on the available methods.
 
 package Chronicle::Plugin::Generate::Tags;
 
+
 use strict;
 use warnings;
+
+
+our $VERSION = "5.0.6";
 
 
 =head2 on_generate
@@ -88,8 +92,6 @@ sub _outputTags
     my $tag;
     $all->bind_columns( undef, \$tag );
 
-    my $c = Chronicle::load_template("tag.tmpl");
-    return unless ($c);
 
     while ( $all->fetch() )
     {
@@ -124,6 +126,9 @@ sub _outputTags
             push( @$entries, Chronicle::getBlog( $dbh, $id ) );
         }
 
+
+        my $c = Chronicle::load_template("tag.tmpl");
+        return unless ($c);
 
         $c->param( top     => $config->{ 'top' } );
         $c->param( entries => $entries ) if ($entries);
@@ -212,5 +217,24 @@ sub _outputTagCloud
 }
 
 
-
 1;
+
+
+=head1 LICENSE
+
+This module is free software; you can redistribute it and/or modify it
+under the terms of either:
+
+a) the GNU General Public License as published by the Free Software
+Foundation; either version 2, or (at your option) any later version,
+or
+
+b) the Perl "Artistic License".
+
+=cut
+
+=head1 AUTHOR
+
+Steve Kemp <steve@steve.org.uk>
+
+=cut

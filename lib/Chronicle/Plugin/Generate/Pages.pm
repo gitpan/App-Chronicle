@@ -20,10 +20,12 @@ Now follows documentation on the available methods.
 
 package Chronicle::Plugin::Generate::Pages;
 
+
 use strict;
 use warnings;
 
 
+our $VERSION = "5.0.6";
 
 
 =head2 on_generate
@@ -51,7 +53,6 @@ any recent comments added to your posts without manual attention.
 
 =cut
 
-
 sub on_generate
 {
     my ( $self, %args ) = (@_);
@@ -68,8 +69,6 @@ sub on_generate
     $all->execute() or die "Failed to execute:" . $dbh->errstr();
     my $id;
     $all->bind_columns( undef, \$id );
-
-    my $c = Chronicle::load_template("entry.tmpl");
 
     while ( $all->fetch() )
     {
@@ -100,6 +99,7 @@ sub on_generate
           print "Creating : $config->{'output'}/$entry->{'link'}\n";
 
 
+        my $c = Chronicle::load_template("entry.tmpl");
         $c->param( top => $config->{ 'top' } );
         $c->param($entry);
 
@@ -128,5 +128,24 @@ sub on_generate
 }
 
 
-
 1;
+
+
+=head1 LICENSE
+
+This module is free software; you can redistribute it and/or modify it
+under the terms of either:
+
+a) the GNU General Public License as published by the Free Software
+Foundation; either version 2, or (at your option) any later version,
+or
+
+b) the Perl "Artistic License".
+
+=cut
+
+=head1 AUTHOR
+
+Steve Kemp <steve@steve.org.uk>
+
+=cut
