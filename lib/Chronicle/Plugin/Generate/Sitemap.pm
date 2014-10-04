@@ -27,7 +27,7 @@ use strict;
 use warnings;
 
 
-our $VERSION = "5.0.6";
+our $VERSION = "5.0.7";
 
 
 =head2 on_generate
@@ -99,11 +99,14 @@ sub on_generate
     $sql->finish();
 
 
-    my $template = HTML::Template->new( scalarref => \$tmpl );
+    #
+    #  Load the template
+    #
+    my $template = Chronicle::load_template( undef, $tmpl );
     $template->param( urls => $urls ) if ($urls);
     $template->param( top => $config->{ 'top' } ) if ( $config->{ 'top' } );
 
-    open( my $handle, ">", $output ) or
+    open( my $handle, ">:encoding(UTF-8)", $output ) or
       die "Failed to open output file $output - $!";
     print $handle $template->output();
     close($handle);

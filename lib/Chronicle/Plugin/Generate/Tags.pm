@@ -25,7 +25,7 @@ use strict;
 use warnings;
 
 
-our $VERSION = "5.0.6";
+our $VERSION = "5.0.7";
 
 
 =head2 on_generate
@@ -81,7 +81,9 @@ sub _outputTags
 {
     my ( $config, $dbh ) = (@_);
 
-    my $all = $dbh->prepare("SELECT DISTINCT(name) FROM tags") or
+    my $all = $dbh->prepare(
+        "SELECT DISTINCT(name) FROM tags GROUP BY name ORDER by name COLLATE nocase"
+      ) or
       die "Failed to find all tags";
     my $ids = $dbh->prepare(
         "SELECT DISTINCT(a.blog_id) FROM tags AS a JOIN blog AS b WHERE ( a.blog_id = b.id AND a.name=? ) ORDER BY b.date DESC"
@@ -101,8 +103,14 @@ sub _outputTags
           if ( ( -e $config->{ 'output' } . "/tags/$tag" ) &&
                ( !$config->{ 'force' } ) );
 
+
+        #
+        #  The output file to generate
+        #
+        my $index = $config->{ 'index_filename' } || "index.html";
+
         $config->{ 'verbose' } &&
-          print "Creating : $config->{'output'}/tags/$tag/index.html\n";
+          print "Creating : $config->{'output'}/tags/$tag/$index\n";
 
         File::Path::make_path( "$config->{'output'}/tags/$tag",
                                {  verbose => 0,
@@ -134,7 +142,7 @@ sub _outputTags
         $c->param( entries => $entries ) if ($entries);
         $c->param( tag     => $tag );
         open( my $handle, ">:encoding(UTF-8)",
-              "$config->{'output'}/tags/$tag/index.html" ) or
+              "$config->{'output'}/tags/$tag/$index" ) or
           die "Failed to open";
         print $handle $c->output();
         close($handle);
@@ -169,7 +177,7 @@ sub _outputTagCloud
     # Now the tags.
     #
     my $sql = $dbh->prepare(
-        'SELECT DISTINCT(name),COUNT(name) AS runningtotal FROM tags GROUP BY name ORDER BY name'
+        "SELECT DISTINCT(name),COUNT(name) AS runningtotal FROM tags GROUP BY name COLLATE nocase"
       ) or
       die "Failed to prepare tag cloud";
     $sql->execute() or die "Failed to execute: " . $dbh->errstr();
@@ -195,8 +203,13 @@ sub _outputTagCloud
     $sql->finish();
 
 
+    #
+    #  The output file to generate
+    #
+    my $index = $config->{ 'index_filename' } || "index.html";
+
     $config->{ 'verbose' } &&
-      print "Creating : $config->{'output'}/tags/index.html\n";
+      print "Creating : $config->{'output'}/tags/$index\n";
 
     File::Path::make_path( "$config->{'output'}/tags",
                            {  verbose => 0,
@@ -210,7 +223,9 @@ sub _outputTagCloud
 
     $c->param( all_tags => $tags ) if ($tags);
     $c->param( top => $config->{ 'top' } );
-    open( my $handle, ">", "$config->{'output'}/tags/index.html" ) or
+
+    open( my $handle, ">:encoding(UTF-8)", "$config->{'output'}/tags/$index" )
+      or
       die "Failed to open";
     print $handle $c->output();
     close($handle);

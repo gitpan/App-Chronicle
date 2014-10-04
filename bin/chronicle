@@ -31,9 +31,9 @@ chronicle - A static blog-compiler.
 
   Optional Features:
 
-   --author        Specify the author's email address
-   --blog-subtitle Set the title of the blog
-   --blog-title    Set the title of the blog
+   --author        Specify the author's email address.
+   --blog-subtitle Set the title of the blog.
+   --blog-title    Set the title of the blog.
    --force         Always regenerate pages.
 
   Help Options:
@@ -49,27 +49,25 @@ chronicle - A static blog-compiler.
 
 =head1 ABOUT
 
-Chronicle is a blog-compiler, which will convert a directory full of
+Chronicle is a blog-compiler which will convert a directory full of
 plain-text blog-posts into a fully-featured HTML website containing
 posts, tags, and archives.
 
-All blog-posts from the specified input directory are parsed into an
-SQLite database, which is then used to generate the output pages.
+All blog-posts from a given input directory are parsed into a SQLite
+database which is then used to generate the output pages.
 
 The SQLite database is assumed to persist, such that it will be updated
-if new posts are written, or previous posts are updated, however the
-software will cope if it is removed between runs - it will just be
-regenerated.
+if new posts are written, or previous posts are updated.  However if
+it is removed it will be recreated when needed.
 
 =cut
 
 =head1 DATABASE STRUCTURE
 
 When C<chronicle> is first executed it will create an SQLite database
-if it is not already present.
-
-The database will contain two tables, one for the posts, and one to
-store the tags.
+if it is not already present.  The database will contain two tables,
+one for the posts, and one to store the tags associated with the posts,
+if you choose to use tag sin your entries.
 
 The blog-entry table contains the following columns:
 
@@ -95,7 +93,6 @@ The title of the blog-post itself.
 
 If you wish to add extra tables via a local plugin you're welcome to do so.
 
-
 =cut
 
 =head1 EXTENDING WITH PLUGINS
@@ -108,10 +105,13 @@ The main driver, chronicle, is responsible for only a few small jobs:
 
 By default C<data/*.txt> are read, but you may adjust the input directory via the C<--input> command-line flag.  The pattern may be set with C<--pattern>.
 
+B<NOTE> The pattern is applied recursively, if you wish to create sub-directories with your posts inside them for organizational purposes.
+
 =item Inserting them into the SQLite database.
 
 The header is read to look for things such as the post-date, the subject,
-and the tags.  The body is imported literally.
+and the tags.  The body is imported literally, unless expanded and reformatted
+via a plugin.
 
 =item Executing plugins
 
@@ -142,11 +142,13 @@ This is called when an existing SQLite database is opened, and we use it to set 
 
 This method is invoked as a blog entry is read to disk before it is inserted into the database for the first time - or when the item on disk has been changed and the database entry must be refreshed.
 
-This method is the perfect place to handle format conversion, which is demonstrated in the following two plugins:
+This method is the perfect place to handle format conversion, which is demonstrated in the following plugins:
 
 =over 8
 
 =item L<Chronicle::Plugin::Markdown>
+
+=item L<Chronicle::Plugin::MultiMarkdown>
 
 =item L<Chronicle::Plugin::Textile>
 
@@ -312,14 +314,15 @@ use warnings;
 package Chronicle;
 use Module::Pluggable::Ordered require => 1, inner => 0;
 
-our $VERSION = "5.0.6";
+our $VERSION = "5.0.7";
 
 use DBI;
 use Date::Format;
 use Date::Parse;
 use Digest::MD5 qw(md5_hex);
-use File::Path;
 use File::Basename;
+use File::Find;
+use File::Path;
 use File::ShareDir;
 use Getopt::Long;
 use HTML::Template;
@@ -480,7 +483,9 @@ sub updateDatabase
     #
     #  Look for posts.
     #
-    foreach my $file ( glob( $CONFIG{ 'input' } . "/" . $CONFIG{ 'pattern' } ) )
+
+    foreach
+      my $file ( get_post_files( $CONFIG{ 'input' }, $CONFIG{ 'pattern' } ) )
     {
 
         #
@@ -633,9 +638,26 @@ sub insertPost
     #  Generate the link from the title of the post.
     #
     $meta{ 'link' } = $meta{ 'title' };
-    $meta{ 'link' } =~ s/\.txt//g;
+
+    #
+    #  Remove the extension - regardless of what that might be.
+    #
+    $meta{ 'link' } =~ s/\.[^.]+$//;
+
+    #
+    #  Remove non-alphanumeric characters.
+    #
     $meta{ 'link' } =~ s/[^a-z0-9]/_/gi;
-    $meta{ 'link' } .= ".html";
+
+    #
+    #  Add the suffix for the page
+    #
+    my $suffix = $CONFIG{ 'entry_suffix' } || ".html";
+    $meta{ 'link' } .= $suffix;
+
+    #
+    #  Lower-case
+    #
     $meta{ 'link' } = lc( $meta{ 'link' } );
 
     #
@@ -740,8 +762,11 @@ sub insertPost
             # skip empty tags.
             next if ( !length($tag) );
 
+            # Tags are always down-cased
+            $tag = lc($tag);
+
             #
-            #  Find the tag ID
+            #  Add the new tag to the post.
             #
             $tag_add->execute( $blog_id, $tag ) or
               die "Failed to execute:" . $dbh->errstr();
@@ -888,34 +913,39 @@ sub getBlog
 
 
     #
-    #  Add on comments to this post.
+    #  If comments are enabled then populate the blog-post with them too.
     #
-    my $comments = getComments( $data->{ 'link' } );
-    if ($comments)
+    if ( $CONFIG{ 'comments' } )
     {
-        $data->{ 'comments' } = $comments;
+        my $comments = getComments( $data->{ 'link' } );
+        if ($comments)
+        {
+            $data->{ 'comments' } = $comments;
 
-        my $count = scalar(@$comments);
-        $data->{ 'comment_count' }  = $count;
-        $data->{ 'comment_plural' } = 1
-          if ( ( $count == 0 ) || ( $count > 1 ) );
-    }
+            my $count = scalar(@$comments);
+            $data->{ 'comment_count' }  = $count;
+            $data->{ 'comment_plural' } = 1
+              if ( ( $count == 0 ) || ( $count > 1 ) );
+        }
 
+        #
+        #  Comments are enabled at this point.
+        #
+        #  If the post is not "too old" then allow the theme-templates
+        # to know that.
+        #
+        my $now = time;
+        my $ago = $now - $posted;
+        my $age = ( ( 60 * 60 * 24 ) * ( $CONFIG{ 'comment-days' } ) );
 
-    #
-    #  If the post is less than 10 days old
-    #
-    my $now = time;
-    my $ago = $now - $posted;
-    my $age = ( ( 60 * 60 * 24 ) * ( $CONFIG{ 'comment-days' } ) );
-
-    if ( $ago < $age )
-    {
-        $data->{ 'comments_enabled' } = 1;
-    }
-    else
-    {
-        $data->{ 'comments_enabled' } = undef;
+        if ( $ago < $age )
+        {
+            $data->{ 'comments_enabled' } = 1;
+        }
+        else
+        {
+            $data->{ 'comments_enabled' } = undef;
+        }
     }
 
     return ($data);
@@ -925,7 +955,8 @@ sub getBlog
 
 =begin doc
 
-Get the cooments associated with a post.
+Get the comments associated with a given post, if comments are
+enabled and there are some present.
 
 =end doc
 
@@ -1079,7 +1110,13 @@ sub getComments
 
 =begin doc
 
-Paying attention to our theme, load a template.
+Load a L<HTML::Template> object, either by reference to the filename
+(which is unqualified and assumed to be located beneath the given
+theme-directory), or via a scalar reference.
+
+Some of the plugins distributed with Chronicle will contain embedded
+C<HTML::Template> snippets in their C<DATA> sections.  These include
+L<Chronicle::Plugin::Generate::RSS> and L<Chronicle::Plugin::Generate::Sitemap>.
 
 =end doc
 
@@ -1087,7 +1124,7 @@ Paying attention to our theme, load a template.
 
 sub load_template
 {
-    my ($filename) = (@_);
+    my ( $filename, $scalar ) = (@_);
 
     #
     #  Ensure we have a theme.
@@ -1107,25 +1144,49 @@ sub load_template
 
 
     #
-    #  The complete path to the template
+    #  HTML::Template options
     #
-    my $path =
-      $CONFIG{ 'theme-dir' } . "/" . $CONFIG{ 'theme' } . "/" . $filename;
-
-    #
-    #  If the template doesn't exist return undef.
-    #
-    return unless ( -e $path );
-
-
-    my $tmpl = HTML::Template->new(
-                    open_mode => '<:encoding(UTF-8)',
-                    filename  => $path,
-                    path => [$CONFIG{ 'theme-dir' } . "/" . $CONFIG{ 'theme' }],
+    my %options = ( path => [$CONFIG{ 'theme-dir' } . "/" . $CONFIG{ 'theme' }],
                     die_on_bad_params => 0,
                     loop_context_vars => 1,
                     global_vars       => 1,
-    );
+                  );
+
+
+    #
+    #  The HTML::Template Instance.
+    #
+    my $tmpl;
+
+    if ($filename)
+    {
+
+        my $path =
+          $CONFIG{ 'theme-dir' } . "/" . $CONFIG{ 'theme' } . "/" . $filename;
+
+        #
+        #  If the template doesn't exist return undef.
+        #
+        return unless ( -e $path );
+
+        #
+        #  Load the template from the given path.
+        #
+        $tmpl = HTML::Template->new( open_mode => '<:encoding(UTF-8)',
+                                     filename  => $path,
+                                     %options,
+                                   );
+    }
+    else
+    {
+
+        #
+        #  Loading via a string-reference
+        #
+        $tmpl = HTML::Template->new( scalarref => \$scalar,
+                                     %options, );
+
+    }
 
     #
     #  Legacy options.
@@ -1136,9 +1197,10 @@ sub load_template
       if ( $CONFIG{ 'blog_subtitle' } );
 
     #
-    #  If we have global options then set them.
+    #  Global options, such as build-time, build-date, etc.
     #
     $tmpl->param( \%GLOBAL_TEMPLATE_VARS );
+
     return ($tmpl);
 }
 
@@ -1336,4 +1398,32 @@ sub get_plugins_for_method
     }
 
     return (@plugins);
+}
+
+
+=begin doc
+
+Return an array of entires from a given folder with a given suffix
+
+=end doc
+
+=cut
+
+sub get_post_files
+{
+
+    my ( $dir, $suffix ) = @_;
+
+    #  This allows for backward compatility for the '*.txt' for glob'ing
+    # blog entries
+    $suffix =~ s/\*\.//;
+
+    my @text_files;
+    my $tf_finder = sub {
+        return if !-f;
+        return if !/\.\Q$suffix\E\z/;
+        push @text_files, $File::Find::name;
+    };
+    find( $tf_finder, $dir );
+    return @text_files;
 }

@@ -39,7 +39,7 @@ use strict;
 use warnings;
 
 
-our $VERSION = "5.0.6";
+our $VERSION = "5.0.7";
 
 
 use Date::Format;
@@ -100,7 +100,7 @@ sub on_insert
         # The post will be published in the future,
         # skip it for now.
         #
-        return undef;
+        return;
     }
 }
 

@@ -1,3 +1,20 @@
+5.0.7 - 4th October 2014
+	* Added Text::MultiMarkdown support, contributed by Stuart Skelton.
+	* Don't enable comments to the templates if not enabled.
+	* Don't regenerate "recent" blog-posts unless comments are enabled.
+	* Allow recursive detection of posts from beneath ./data/
+	  (Or whateverthe input path is.)
+	* New bootstrap2 theme, named 'bs2'.
+	* Tags are output ordered by name, case-insensitively.
+	* Tags are always lower-cased when inserted.
+	* Populate more global variables via Chronicle::Plugin::Snippets::Meta
+	* Allow the user to define an alternative to the default index file "index.html".
+	* Allow the use of a different suffix to ".html".
+	* Removed the need for themes to duplicate "index.rss".
+	* Added sample configuration-file.
+	* Allow blog-entries to link to next/prev entry.
+
+
 5.0.6 - 24rd September 2014
 	* Correctly load templates inside loops to avoid parameter reuse.
 	* Updated all plugins to declare a version.

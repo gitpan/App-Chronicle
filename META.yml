@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               App-Chronicle
-version:            5.0.6
+version:            5.0.7
 abstract:           A static blog-compiler with minimal dependencies.
 author:
     - Steve Kemp <steve@steve.org.uk>
@@ -21,6 +21,7 @@ requires:
     DBI:                  0
     Digest::MD5:          0
     File::Basename:       0
+    File::Find:           0
     File::Path:           0
     Getopt::Long:         0
     HTML::Template:       0
@@ -28,6 +29,7 @@ requires:
     perl:                 5.008
     Pod::Usage:           0
     Text::Markdown:       0
+    Text::MultiMarkdown:  0
     Text::Textile:        0
 resources:
     bugtracker:  https://github.com/skx/chronicle2/issues
