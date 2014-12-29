@@ -27,7 +27,7 @@ use strict;
 use warnings;
 
 
-our $VERSION = "5.0.7";
+our $VERSION = "5.0.8";
 
 
 =head2 on_generate
@@ -67,7 +67,11 @@ sub on_generate
 
     while ( $recent->fetch() )
     {
-        push( @$entries, Chronicle::getBlog( $dbh, $id ) );
+        push( @$entries,
+              Chronicle::getBlog( dbh    => $dbh,
+                                  id     => $id,
+                                  config => $config
+                                ) );
     }
     $recent->finish();
 

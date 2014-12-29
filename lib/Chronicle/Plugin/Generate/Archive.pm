@@ -27,7 +27,7 @@ use strict;
 use warnings;
 
 
-our $VERSION = "5.0.7";
+our $VERSION = "5.0.8";
 
 
 use Date::Language;
@@ -202,7 +202,11 @@ sub on_generate
 
         while ( $ids->fetch() )
         {
-            push( @$entries, Chronicle::getBlog( $dbh, $id ) );
+            push( @$entries,
+                  Chronicle::getBlog( dbh    => $dbh,
+                                      id     => $id,
+                                      config => $config
+                                    ) );
         }
         $ids->finish();
 

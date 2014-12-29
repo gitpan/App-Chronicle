@@ -67,7 +67,7 @@ it is removed it will be recreated when needed.
 When C<chronicle> is first executed it will create an SQLite database
 if it is not already present.  The database will contain two tables,
 one for the posts, and one to store the tags associated with the posts,
-if you choose to use tag sin your entries.
+if you choose to use tags in your entries.
 
 The blog-entry table contains the following columns:
 
@@ -314,7 +314,7 @@ use warnings;
 package Chronicle;
 use Module::Pluggable::Ordered require => 1, inner => 0;
 
-our $VERSION = "5.0.7";
+our $VERSION = "5.0.8";
 
 use DBI;
 use Date::Format;
@@ -849,7 +849,20 @@ Fetch the blog post with the given ID
 
 sub getBlog
 {
-    my ( $dbh, $id ) = (@_);
+    my (%params) = (@_);
+
+    #
+    #  These are compulsary
+    #
+    my $dbh = $params{ 'dbh' } || die "Missing database handle";
+    my $id  = $params{ 'id' }  || die "Missing ID";
+
+    #
+    #  This is optional, and present so that the date/time format
+    # may be changed by the user in their configuration file.
+    #
+    my $config = $params{ 'config' } || undef;
+
 
     #
     #  Get the blog-post
@@ -897,20 +910,59 @@ sub getBlog
     {
         $time = $data->{ 'mtime' };
     }
-    my $hms = time2str( "%H:%M:%S", $time );
-    my $tz  = time2str( "%z",       $time );
 
 
-    if ( $hms eq '00:00:00' )
+    ##
+    ##  Get the format-strings to use for time-formatting.
+    ##
+    my $time_fmt = "%H:%M:%S";
+    if ($config)
     {
-        $hms = time2str( "%H:%M:%S", $data->{ 'mtime' }, "GMT" );
-        $tz = "GMT";
+        $time_fmt = $config->{ "time_format" } || "%H:%M:%S";
+    }
+    $time_fmt = undef if ( $time_fmt !~ /%/ );
+
+
+    ##
+    ##  Ditto for the date-string.
+    ##
+    my $date_fmt = "%a, %e %b %Y";
+    if ($config)
+    {
+        $date_fmt = $config->{ "date_format" } || "%a, %e %b %Y";
+    }
+    $date_fmt = undef if ( $date_fmt !~ /%/ );
+
+
+    #
+    #  The date of the entry - if we have a date-format that contains
+    # at least one % character.
+    #
+    if ( $date_fmt && length($date_fmt) )
+    {
+        $data->{ 'date' } = time2str( $date_fmt, $time );
     }
 
-    $data->{ 'date' }      = time2str( "%a, %e %b %Y $hms $tz", $time );
-    $data->{ 'date_only' } = time2str( "%e %B %Y",              $time );
-    $data->{ 'time' }      = $hms;
+    #
+    #  The time of the entry - if we have a time-format that contains
+    # at least one % character.
+    #
+    if ( $time_fmt && length($time_fmt) )
+    {
 
+        #
+        #  The time from the import-date.
+        #
+        $data->{ 'time' } = time2str( $time_fmt, $time );
+
+        #
+        #  If that failed then from the modification-time.
+        #
+        if ( $data->{ 'time' } =~ /00:00:00/ )
+        {
+            $data->{ 'time' } = time2str( $time_fmt, $data->{ 'mtime' } );
+        }
+    }
 
     #
     #  If comments are enabled then populate the blog-post with them too.

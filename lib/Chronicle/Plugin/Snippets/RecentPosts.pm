@@ -51,7 +51,7 @@ use strict;
 use warnings;
 
 
-our $VERSION = "5.0.7";
+our $VERSION = "5.0.8";
 
 
 =head2 on_initiate
@@ -93,7 +93,10 @@ sub on_initiate
 
     while ( $recent->fetch() )
     {
-        my $data = Chronicle::getBlog( $dbh, $id );
+        my $data = Chronicle::getBlog( dbh    => $dbh,
+                                       id     => $id,
+                                       config => $config
+                                     );
 
         push( @$entries,
               {  date  => $data->{ 'date_only' },

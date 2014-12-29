@@ -29,7 +29,7 @@ use strict;
 use warnings;
 
 
-our $VERSION = "5.0.7";
+our $VERSION = "5.0.8";
 
 
 =head2 on_insert
@@ -101,6 +101,6 @@ b) the Perl "Artistic License".
 
 =head1 AUTHOR
 
-Steve Kemp <steve@steve.org.uk>
+Stuart Skelton
 
 =cut
